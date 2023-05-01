@@ -38,7 +38,7 @@ int main() {
 int fileRead()                                                                                              //read input .bin file
 {
     std::string inFileName;
-    std::cout << "Binary file to convert: ";
+    std::cout << "Type \"exit\" to leave program.\n" << "Binary file to convert: ";
     std::cin >> inFileName, "\n";
 
     if (inFileName == "exit" || inFileName == "Exit" || inFileName == "EXIT")                               //type exit to leave decoder
