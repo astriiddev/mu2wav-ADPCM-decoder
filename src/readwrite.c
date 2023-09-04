@@ -1,16 +1,15 @@
-#include <stdlib.h>
-#include <string.h>
-
 #include "readwrite.h"
 #include "compand.h"
 
+static char 	*fileBuffer;
+uint8_t 	*muBuffer;
+int16_t		*wavBuffer;
 
-static char 	*fileBuffer,
-				*muBuffer;
-static int16_t	*wavBuffer;
+static uint32_t fileLength;
 
-static uint32_t fileLength,
-				wavLength;
+uint32_t muLength,
+	 	 wavLength,
+	 	 sampleRate = 22050;
 
 static void writeHeader(FILE* wavFile);
 static int  wavParse();
@@ -90,8 +89,11 @@ int readFile(const char* filePath, int isWav)
 	else
 	{
 		/* mu-law files have no header and are 8-bit, no parsing needed */
-
-		muBuffer = (char*)malloc(fileLength);
+		
+		sampleRate = 22050;
+		
+		muLength = fileLength;
+		muBuffer = (char*)malloc(muLength * sizeof *muBuffer);
 		memcpy(muBuffer, fileBuffer, fileLength);
 
 		if (muBuffer == NULL)
@@ -109,9 +111,9 @@ int readFile(const char* filePath, int isWav)
 	return 1;
 }
 
-static int fileExists()
+static int fileExists(const char* fileName)
 {
-	printf("File already exists! Overwrite file? (y/n) ");
+	printf("\"%s\" already exists! Overwrite file? (y/n) ", fileName);
 
 	char proceed = getchar();
 	char ignore  = 0;
@@ -135,7 +137,7 @@ static int fileExists()
 		return 0;
 	/* repeat question for input other than y/Y or n/N */
 	else
-		return fileExists();
+		return fileExists(fileName);
 }
 
 void writeFile(const char* fileName, int isMu)
@@ -148,7 +150,7 @@ void writeFile(const char* fileName, int isMu)
 
 	if(existingFile != NULL)
 	{
-		if(fileExists() == 0)
+		if(fileExists(fileName) == 0)
 		{
 			fclose(existingFile);
 			printf("File not saved!\n");
@@ -175,7 +177,7 @@ void writeFile(const char* fileName, int isMu)
 			
 			/* 8-bit mulaw decoding to 16-bit WAV file */
 
-			for (int i = 0; i < fileLength; i++)
+			for (int i = 0; i < muLength; i++)
 			{
 				int16_t tempDecode = decodeSample(muBuffer[i]);
 
@@ -225,90 +227,120 @@ void writeFile(const char* fileName, int isMu)
 static int wavParse()
 {
 
-	int	d = 0;
+	int d = 0;
 
 	/* find 'data' subchunk; usually at $0x2C,
 	 * but safer to check for exact location */
 
 	for (int i = 0; i < fileLength; i++)
 	{
-		static int dataChunkID = 0;
+	    static int dataChunkID = 0;
 
-		if (fileBuffer[i + 0] != 'd')
-			continue;
+	    if (fileBuffer[i + 0] != 'd')
+		    continue;
 
-		if (fileBuffer[i + 1] != 'a')
-			continue;
-		
-		if (fileBuffer[i + 2] != 't')
-			continue;
-			
-		if (fileBuffer[i + 3] != 'a')
-			continue;
-		else		
-			dataChunkID = 1;
-				
-		if (dataChunkID)
-		{
-			/* actual PCM data 8 bytes after data subchunk ID address;
-			 * data subchunk ID is 4 bytes, following 4 bytes are PCM data size */
-			d = i + 8;
-			break;
-		}
-	}
+	    if (fileBuffer[i + 1] != 'a')
+		    continue;
+	    
+	    if (fileBuffer[i + 2] != 't')
+		    continue;
+		    
+	    if (fileBuffer[i + 3] != 'a')
+		    continue;
+	    else		
+		    dataChunkID = 1;
+			    
+	    if (dataChunkID)
+	    {
+		    /* actual PCM data 8 bytes after data subchunk ID address;
+		     * data subchunk ID is 4 bytes, following 4 bytes are PCM data size */
+		    d = i + 8;
+		    break;
+	    }
+    }
 
-	if(wavBuffer != NULL)
-	{
-		free(wavBuffer);
-		wavBuffer = NULL;
-	}
-	
-	/* checks if WAV is 16 bit and mono */
+    if(wavBuffer != NULL)
+    {
+	    free(wavBuffer);
+	    wavBuffer = NULL;
+    }
+    
+    /* checks if WAV is 16 bit and mono */
 
-	int16_t numChannels = littleEndian16(fileBuffer[22], fileBuffer[23]);
+    int16_t numChannels 	= littleEndian16(fileBuffer[22], fileBuffer[23]);
+    
+    sampleRate		= littleEndian32(fileBuffer[24], fileBuffer[25],
+					     fileBuffer[26], fileBuffer[27]);
 
-	int16_t bitDepth	= littleEndian16(fileBuffer[34], fileBuffer[35]);
+    int16_t bitDepth	= littleEndian16(fileBuffer[34], fileBuffer[35]);
 
-	if (numChannels != 1)
-	{
-		printf("WAV is not mono! Cannot convert file!\n");
-		return 0;
-	}
+    if (numChannels != 1)
+    {
+	    printf("WAV is not mono! Cannot convert file!\n");
+	    return 0;
+    }
 
-	if(bitDepth != 16)
-	{
-		printf("WAV is not 16-bit! Cannot convert file!\n");
-		return 0;
-	}
+    if(bitDepth != 8 && bitDepth != 16 && bitDepth != 24)
+    {
+	    printf("WAV is not a valid bit depth! Cannot convert file!\n");
+	    return 0;
+    }
+    
 
 
-	if (d != 0)
-	{
-		/* PCM data length in bytes, determined by 'data' subchunk */
-		wavLength = littleEndian32(fileBuffer[d - 4], fileBuffer[d - 3], 
-								   fileBuffer[d - 2], fileBuffer[d - 1]);
-		
-		/* 16-bit WAV is 2 bytes per sample, 
-		 * so actual sample length is half of length read from 'data' subchunk */
-		wavLength /= 2;
+    if (d != 0)
+    {
+	    /* PCM data length in bytes, determined by 'data' subchunk */
+	    wavLength = littleEndian32(fileBuffer[d - 4], fileBuffer[d - 3], 
+				       fileBuffer[d - 2], fileBuffer[d - 1]);
+	    
+	    /* 16-bit WAV is 2 bytes per sample, 
+	     * so actual sample length is half of length read from 'data' subchunk */
+	    if (bitDepth == 16)
+		    wavLength /= 2;
+	    
+	    if (bitDepth == 24)
+		    wavLength /= 3;
 
-		wavBuffer = (int16_t*)malloc(wavLength * sizeof(int16_t));
+	    wavBuffer = (int16_t*)malloc(wavLength * sizeof *wavBuffer);
 
-		int i = 0;
-		if(wavBuffer != NULL)
-		{
-			for(; d < fileLength - 1; d += 2)
-			{
-				if (d + 1 >= fileLength)
-					break;
+	    if(wavBuffer != NULL)
+	    {
+		    for(int i = 0; i < wavLength - 1; i++)
+		    {
+			    if (d + 1 >= fileLength)
+				    break;
 
-				if(i < wavLength)
-					wavBuffer[i] = littleEndian16(fileBuffer[d + 0], 
-												  fileBuffer[d + 1]);
+			    if(i < wavLength)
+			    {
+				    if(bitDepth == 16)
+				    {
+					    if((i * 2) + d + 1 >= fileLength)
+						    break;
+
+					    wavBuffer[i] = littleEndian16(fileBuffer[(i * 2) + d + 0], 
+								      	  fileBuffer[(i * 2) + d + 1]);
+				    }
+				    if(bitDepth == 24)
+				    {
+					    if((i * 3) + d + 2 >= fileLength)
+							break;
+
+						wavBuffer[i] = littleEndian16(fileBuffer[(i * 3) + d + 1], 
+									      fileBuffer[(i * 3) + d + 2]);
+					}
+					if(bitDepth == 8)
+					{
+						if(i + d >= fileLength)
+							break;
+
+						fileBuffer[i + d] ^= 0x80;
+						wavBuffer[i] = (int16_t)((uint8_t)fileBuffer[i + d] << 8 | 
+									 (uint8_t)fileBuffer[i + d]);
+					}
+				}
 				else
 					break;
-			
-				i++;
 			}
 		}
 		
@@ -326,15 +358,14 @@ static int wavParse()
 
 static void writeHeader(FILE* wavFile)
 {
-	const static int 	sampleRate 		= 22050,
-						numOfChannels 	= 1,
-						bitDepth		= 16;
+	const static int numOfChannels 	= 1,
+			 bitDepth	= 16;
 
 	/* RIFF Wave format header for writing WAV files */
 	uint8_t chunkID_RIFF[4] = { 'R', 'I', 'F', 'F' };
 	fwrite(&chunkID_RIFF, 4, 1, wavFile);
 	
-	uint32_t chunkSize_RIFF = ((fileLength * 2) + 36);
+	uint32_t chunkSize_RIFF = ((muLength * 2) + 36);
 	fwrite(&chunkSize_RIFF, 4, 1, wavFile);
 
 	uint8_t RIFF_Type[4] = { 'W', 'A', 'V', 'E' };
@@ -367,6 +398,9 @@ static void writeHeader(FILE* wavFile)
 	uint8_t subchunkID_data[4] = { 'd', 'a', 't', 'a' };
 	fwrite(subchunkID_data, 4, 1, wavFile);
 
-	uint32_t subchunkSize_data = (fileLength * 2);
+	uint32_t subchunkSize_data = (muLength * 2);
 	fwrite(&subchunkSize_data, 4, 1, wavFile);
 }
+
+  
+/*void getFileLength(uint32_t* length) { *length = fileLength; }*/

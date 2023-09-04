@@ -45,8 +45,9 @@ int16_t decodeSample(const uint8_t sample)
 }
 
 int8_t encodeSample(const int16_t pcmData)
-{	
-	double encoding = 255.0 * (double)abs(pcmData) / 32767;
+{
+	double encoding = 255.0 * (double)abs(pcmData);
+	encoding /= 32767;
 	encoding = log(1.0 + encoding);
 	
 	/* simplification of 0x7F / ln(1 + 0xFF) to save on FPU math

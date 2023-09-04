@@ -11,54 +11,62 @@
  *
  * ==================================================================================*/
 
-
-
-#include <stdio.h>
-#include <string.h>
-
 #include "readwrite.h"
+#include "editor.h"
 
 static void 	usage();
 
 static char 	*inName,
-				*outName;
+		*outName;
 
 int main(int argc, char* argv[])
 {
-	if(argv[1] == NULL)
+	if(argc <= 1)
 	{
 		usage();
 	}
 	else
 	{
-		int isWav = 0;
 		
 		inName = argv[1];
+
+		int end = argc - 1;
+		
+		int inputIsWav = 0;
 
 		/* Determine if input is wav PCM or binary ADPCM*/
 		char* inWavExt = strstr(inName, ".wav");
 		char* inMuExt = strstr(inName, ".bin");
 
 		if(inWavExt != NULL)
-			isWav = 1;
+			inputIsWav = 1;
 		else if (inMuExt == NULL)
 		{
 			printf("Please select a valid .wav or .bin file.\n");
 			return 0;
 		}
 
-		if (readFile(inName, isWav) == 0)
+		if (readFile(inName, inputIsWav) == 0)
 			printf("Failure to read file!\n");
 		else
 		{
-			
+			if (argc >= 4 && argv[2][0] == '-')
+			{
+				sampleEdit(inputIsWav);
+
+				if (argv[2][1] == 's')
+					resampleAudio(atoi(argv[3]));
+
+				fileEditor();
+			}
+
 			printf("Converting \"%s\"....\n", inName);
 			
 			char *outName;
 	
-			if(argv[2] == NULL)
+			if(argc <= 2 || argv[end][0] == '-' || argv[end - 1][0] == '-')
 			{
-				/* adds output file name if only input name is entered*/
+				/* adds output file name if only input name is entered */
 			
 				outName = argv[1];
 			
@@ -72,22 +80,22 @@ int main(int argc, char* argv[])
 					strcpy(outWavExt, ".bin");
 			}
 			else
-				outName = argv[2];
-			
+				outName = argv[end];
+
 			/* if output file name is entered with no extension,
 			 * add extension based on input */
 
 			char* outMuExt  = strstr(outName, ".bin");
 			char* outWavExt = strstr(outName, ".wav");
 			
-			if(isWav == 1 && outMuExt == NULL)
+			if(inputIsWav == 1 && outMuExt == NULL)
 				sprintf(outName, "%s%s", outName, ".bin");
 
-			if(isWav == 0 && outWavExt == NULL)
+			if(inputIsWav == 0 && outWavExt == NULL)
 				sprintf(outName, "%s%s", outName, ".wav");
 
-			writeFile(outName, isWav);
-
+			writeFile(outName, inputIsWav);
+			
 			if (freeBuffers() == 0)
 				printf("Possible memory corruption!\n");
 		}
@@ -98,5 +106,16 @@ int main(int argc, char* argv[])
 
 static void usage()
 {
-	printf("Usage: mu2wav infile.bin [outfile.wav]\n");
-}
+	printf("\nmu2wav v0.8 by _astriid_\n\n"
+		"Usage: mu2wav infile [options] [outfile]\n\n"
+		"infile must be .bin (mu-law ADPCM) or .wav (PCM)\n"
+		"input .wav files must be 8, 16, or 24 bit\n"
+		"output .wav files will be 16 bit\n\n"
+		"Options:\n"
+		"  -s\t| [ output file's resampled sample rate ]\n"
+		"    \t  input mu-law files are treated as having a\n"
+		"    \t  22050hz sample rate. If option is not set\n"
+		"    \t  output wav file sample rate default is\n"
+		"    \t  22050hz and output mulaw sample rate default\n"
+		"    \t  is equal to wav file input sample rate\n\n");
+} 
